@@ -33,7 +33,7 @@ void handle_sigint(int sig) {
 struct TTWS_Server {
     int epoll_instance_fd;
     int socket_fd;
-    struct epoll_event event;
+    int port_no;
     struct epoll_event events[MAX_SOCKETS];
     
 };
@@ -51,32 +51,53 @@ static int create_server_socket() {
 static struct epoll_event create_epoll_event() {
     struct epoll_event ev;
     ev.events = EPOLLIN;
-    ev.data.fd = create_server_socket();
 
     return ev;
 }
 
-TTWS_Server* TTWS_CreateServer() {
+TTWS_Server* TTWS_CreateServer(int port) {
     TTWS_Server* server = malloc(sizeof(TTWS_Server));
     server->epoll_instance_fd = epoll_create1(0);
-
-    server->event = create_epoll_event();
+    server->port_no = port;
     server->socket_fd = socket(AF_INET, SOCK_STREAM, 0);
-    epoll_ctl(
+    struct epoll_event ep_event = create_epoll_event();
+    ep_event.data.fd = server->socket_fd;
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = INADDR_ANY;
+
+    bind(server->socket_fd, (struct sockaddr*) &addr, sizeof(addr));
+    return server;
+}
+// TODO: Clean up server->event = create_epoll_event(); we removed the event from the struct
+void TTWS_StartServer(TTWS_Server* server) {
+    printf("\033[36mTinyWebServer\033[0m is listening on port \033[35m%d\033[0m.\n", server->port_no);
+    int no_ready_clients, client_fd, fd;
+    int size = 1024;
+    char buf[size];
+
+    const char* body = "<h1>Hello World</h1>";
+    char message[1024];
+    snprintf(message, sizeof(message),
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/html\r\n"
+        "Content-Length: %zu\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+        "%s",
+        strlen(body), body);
+    listen(server->socket_fd, 5);
+    struct epoll_event ep_event = create_epoll_event();
+    ep_event.data.fd = server->socket_fd;
+    epoll_ctl( // epoll monitors sockets, this includes our listening socket. If I/O becomes available on that socket it means that another client is trying to connect and we should accept their connection, and add that clients new socket file descriptor ro
             server->epoll_instance_fd, 
             EPOLL_CTL_ADD, 
             server->socket_fd,
-            &(server->event)
+            &ep_event
             );
-    return server;
-}
-
-void TTWS_StartServer(TTWS_Server* server) {
-    int no_ready_clients, client_fd;
-    int size = 1024;
-    char buf[size];
-    const char* message = "HTTP/1.1 200 OK\n\r\n\r<h1>Hello World</h1>";
-
     for(;;) {
         no_ready_clients = epoll_wait(
             server->epoll_instance_fd,
@@ -86,11 +107,18 @@ void TTWS_StartServer(TTWS_Server* server) {
             );
 
         for(int i = 0; i < no_ready_clients; i++) {
-            client_fd = accept(server_socket, 0, 0);
-            recv(client_fd, buf, size, 0);
-            send(client_fd, message, strlen(message), 0);
-            //*(client_sockets+i) = client_fd;
-            close(client_fd);
+            fd = server->events[i].data.fd;
+            if (fd == server->socket_fd) { // The socket that is available for I/O is our listen server, meaning that a new possible client is trying to connect.
+                client_fd = accept(server->socket_fd, 0, 0);
+                ep_event.events = (EPOLLIN | EPOLLOUT);
+                ep_event.data.fd = client_fd;
+                epoll_ctl(server->epoll_instance_fd, EPOLL_CTL_ADD, client_fd, &ep_event);
+            } else {
+                recv(fd, buf, size, 0);
+                send(fd, message, strlen(message), 0);
+                //*(client_sockets+i) = client_fd;
+                close(fd);
+            }
         }
     }
 }
@@ -100,41 +128,7 @@ void TTWS_AddStaticFile() {
 }
 
 int main() {
-    TTWS_Server* server = TTWS_CreateServer();
+    TTWS_Server* server = TTWS_CreateServer(8080);
+    TTWS_StartServer(server);
     return 0;
 }
-
-/*
-int main() {
-    signal(SIGINT, handle_sigint);
-    memset(client_sockets, -1, sizeof(client_sockets));
-    server_socket = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_socket == -1) {
-        perror("Failed to create socket");
-        exit(1);
-    }
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(8080);
-    addr.sin_addr.s_addr = INADDR_ANY;
-
-    bind(server_socket, (struct sockaddr*) &addr, sizeof(addr));
-    listen(server_socket, 5);
-
-    int epoll_fd = epoll_create1(0);
-    struct epoll_event ev, events[MAX_SOCKETS];
-    ev.events = EPOLLIN;
-    ev.data.fd = server_socket;
-
-    //memset(buf, 0, size);
-    epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_socket, &ev);
-    int no_ready_fds, client_fd;
-
-    for(int i = 0; i < 5; i++) {
-        no_ready_fds = epoll_wait(epoll_fd, events, MAX_SOCKETS, -1);
-    }
-    cleanup_sockets();
-    close(server_socket);
-    return 0;
-} */
