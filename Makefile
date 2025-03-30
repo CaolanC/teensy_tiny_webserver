@@ -5,3 +5,7 @@ make:
 strace:
 	gcc ./main.c
 	strace ./a.out
+
+debug:
+	gcc -g ./main.c
+	gdb ./a.out
