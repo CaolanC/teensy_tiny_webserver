@@ -136,14 +136,14 @@ TTWS_Server* TTWS_CreateServer(int port) {
 static void handle_request();
 
 void TTWS_StartServer(TTWS_Server* server) {
-    printf("\033[36mTinyWebServer\033[0m is listening on port \033[35m%d\033[0m.\n", server->port_no);
+    printf("\033[36mTeensyTinyWebServer\033[0m is listening on port \033[35m%d\033[0m.\n", server->port_no);
     int no_ready_clients, client_fd, fd;
     int size = 1024;
     char buf[size];
 
     const char* body = "<h1>Hello World</h1>";
     char message[1024];
-    snprintf(message, sizeof(message),
+    /*snprintf(message, sizeof(message),
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: text/html\r\n"
         "Content-Length: %zu\r\n"
@@ -151,6 +151,7 @@ void TTWS_StartServer(TTWS_Server* server) {
         "\r\n"
         "%s",
         strlen(body), body);
+    */
     if (listen(server->socket_fd, 5) == -1) {
         perror("listen");
         exit(1);
@@ -181,9 +182,15 @@ void TTWS_StartServer(TTWS_Server* server) {
                 ep_event.data.fd = client_fd;
                 epoll_ctl(server->epoll_instance_fd, EPOLL_CTL_ADD, client_fd, &ep_event);
             } else {
-                recv(fd, buf, size, 0);
-                printf("%s\n", buf);
-                handle_request(buf);
+                int bytes_read = recv(fd, buf, size - 1, 0);
+                if (bytes_read <= 0) {
+                    close(fd);
+                    continue;
+                }
+                buf[bytes_read] = '\0';
+
+                //printf("%s\n", buf);
+                handle_request(server, buf);
                 send(fd, message, strlen(message), 0);
                 //*(client_sockets+i) = client_fd;
                 close(fd);
@@ -219,13 +226,13 @@ static void recurse_routes(RouteNode* node, char* path, char* save, int first_ca
     recurse_routes(node, path, save, 0);
 }
 
-static void add_route_to_tier(RouteNode* node, char* route, char* remaining_path) {
+static void add_route_to_tier(RouteNode* node, char* route, char* remaining_path, RouteHandler* handler) {
     RouteNode* child_node;
     for(int i = 0; i < node->no_children; i++) {
         child_node = node->children[i];
         if (strcmp(route, child_node->value) == 0) {
             route = strtok_r(NULL, "/", &remaining_path);
-            add_route_to_tier(child_node, route, remaining_path);
+            add_route_to_tier(child_node, route, remaining_path, handler);
 
             return;
         }
@@ -238,10 +245,11 @@ static void add_route_to_tier(RouteNode* node, char* route, char* remaining_path
 
     route = strtok_r(NULL, "/", &remaining_path);
     if (route == NULL) {
+        new_node->handler = **handler;
         return;
     }
 
-    add_route_to_tier(new_node, route, remaining_path);
+    add_route_to_tier(new_node, route, remaining_path, handler);
 
 }
 
@@ -259,6 +267,7 @@ static void print_trie_tree(const RouteNode* parent, int indent_level) {
 
 void TTWS_PrintRouteTree(const TTWS_Server* server) {
     print_trie_tree(&server->route_trie_root, 0);
+    printf("\n");
 }
 
 void TTWS_AddRoute(TTWS_Server* server, const char* method, const char* path, RouteHandler handler) {
@@ -273,18 +282,13 @@ void TTWS_AddRoute(TTWS_Server* server, const char* method, const char* path, Ro
     char* save;
     char* route = strtok_r(path_copy, "/", &save);
 
-    add_route_to_tier(&server->route_trie_root, route, save);
+    add_route_to_tier(&server->route_trie_root, route, save, &handler);
     //recurse_routes(&server->route_trie_root, path_copy, NULL, 1);
 }
 
 // Go through each of the roots children
 // if there's a match, enter that route, if there isn't create a new one
 //
-
-void handle() {
-
-}
-
 
 static char* parse_request_line(const char* request_line, TTWS_Request* request) {
 
@@ -322,61 +326,77 @@ static void get_route(TTWS_Server* server, char* path, char* save) {
 }
 
 static RouteHandler* get_route_handler(const TTWS_Server* server, const TTWS_Request* request) {
-    
     char* path = strdup(request->path);
-    char* save;
-    char* route_segment = strtok_r(path, "/", &save);
+    char* saveptr;
+    char* segment = strtok_r(path, "/", &saveptr);
 
-    
+    RouteNode* current = (RouteNode*)&server->route_trie_root;
 
-    get_route(server, path, save);
+    while (segment != NULL) {
+        int found = 0;
+
+        for (int i = 0; i < current->no_children; i++) {
+            if (strcmp(segment, current->children[i]->value) == 0) {
+                current = current->children[i];
+                found = 1;
+                break;
+            }
+        }
+
+        if (!found) {
+            free(path);
+            return NULL;
+        }
+
+        segment = strtok_r(NULL, "/", &saveptr);
+    }
 
     free(path);
+    return current->handler ? &current->handler : NULL;
 }
 
-static void handle_request(cons TTWS_Server* server, const char* req_str) {
-    // TODO: Get the path
-    // Go through the tree and find a match
-    // pass req and res to the handler function of the match
-    // we get response back
-    // return response or handle it here
-
+static void handle_request(const TTWS_Server* server, const char* req_str) {
     TTWS_Request request;
     char* copy = strdup(req_str);
-    char* line = strtok(copy, "\n\r");
+    char* line = strtok(copy, "\r\n");
     parse_request_line(line, &request);
 
     TTWS_Response response;
-    RouteHandler* route_handler;
+    RouteHandler* route_handler = NULL;
 
     if (strcmp(request.path, "/") == 0) {
-        route_handler = server->route_trie_root->handler; // If the handler is NULL, then there's no handle for this endpoint and we handle that separately.
+        route_handler = (RouteHandler*) &server->route_trie_root.handler;
     } else {
-        route_handler = get_route_handler(&request);
+        route_handler = get_route_handler(server, &request);
     }
 
-    get_route(server, request);
-    printf("%s\n%s\n%s\n", request.method, request.path, request.version);
-    while(line != NULL) {
-        //printf("%s\n", line);
-        line = strtok(NULL, "\n\r");
+    if (route_handler && *route_handler) {
+        (*route_handler)(&request, &response);
+    } else {
+        printf("No handler found for path: %s\n", request.path);
     }
 
     free(copy);
+    free(request.method);
+    free(request.path);
+    free(request.version);
+}
 
+void handle(const TTWS_Request* req, TTWS_Response* res) {
+    printf("Handling request for path: %s\n", req->path);
 }
 
 // TODO: Add a --print-routes flag and print a tree structure.
 int main() {
     TTWS_Server* server = TTWS_CreateServer(8080);
+    TTWS_AddRoute(server, "GET", "/", handle);
     TTWS_AddRoute(server, "GET", "/my_path/lol/", handle);
     TTWS_AddRoute(server, "GET", "/my_path/cheese/", handle);
     TTWS_AddRoute(server, "GET", "/my_path/cheese/gouda", handle);
     TTWS_AddRoute(server, "GET", "/my_path/cheese/fries", handle);
     TTWS_AddRoute(server, "GET", "/my_path/elmo", handle);
     TTWS_AddRoute(server, "GET", "/the_jiggler", handle);
-    handle_request(server, "GET / HTTP/1.1\r\nH: x\r\nY: t\r\nZ: m");
-    //TTWS_PrintRouteTree(server);
-    //TTWS_StartServer(server);
+    TTWS_PrintRouteTree(server);
+    TTWS_StartServer(server);
     return 0;
 }
