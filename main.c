@@ -30,8 +30,17 @@ void handle_sigint(int sig) {
     exit(0);
 }
 
+typedef struct {
+    char* method;
+    char* path;
+    char* version;
+} TTWS_Request;
 
-typedef void (*RouteHandler)();
+typedef struct {
+
+} TTWS_Response;
+
+typedef void (*RouteHandler)(const TTWS_Request* request, TTWS_Response* response);
 typedef struct RouteNode {
     char* value;
     struct RouteNode* next;
@@ -91,8 +100,21 @@ static struct epoll_event create_epoll_event() {
 TTWS_Server* TTWS_CreateServer(int port) {
     TTWS_Server* server = malloc(sizeof(TTWS_Server));
     server->epoll_instance_fd = epoll_create1(0);
+
+    if (server->epoll_instance_fd == -1) {
+        perror("epoll_create1");
+        exit(1);
+    }
+
     server->port_no = port;
     server->socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+    int opt = 1;
+    setsockopt(server->socket_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    if (server->socket_fd == -1) {
+        perror("socket");
+        exit(1);
+    }
+
     server->route_trie_root.value = "/";
     server->route_trie_root.next = NULL;
     struct epoll_event ep_event = create_epoll_event();
@@ -104,9 +126,14 @@ TTWS_Server* TTWS_CreateServer(int port) {
     addr.sin_port = htons(port);
     addr.sin_addr.s_addr = INADDR_ANY;
 
-    bind(server->socket_fd, (struct sockaddr*) &addr, sizeof(addr));
+    if (bind(server->socket_fd, (struct sockaddr*) &addr, sizeof(addr)) == -1) {
+        perror("bind");
+        exit(1);
+    };
     return server;
 }
+
+static void handle_request();
 
 void TTWS_StartServer(TTWS_Server* server) {
     printf("\033[36mTinyWebServer\033[0m is listening on port \033[35m%d\033[0m.\n", server->port_no);
@@ -124,7 +151,12 @@ void TTWS_StartServer(TTWS_Server* server) {
         "\r\n"
         "%s",
         strlen(body), body);
-    listen(server->socket_fd, 5);
+    if (listen(server->socket_fd, 5) == -1) {
+        perror("listen");
+        exit(1);
+    }
+    
+
     struct epoll_event ep_event = create_epoll_event();
     ep_event.data.fd = server->socket_fd;
     epoll_ctl( // epoll monitors sockets, this includes our listening socket. If I/O becomes available on that socket it means that another client is trying to connect and we should accept their connection, and add that clients new socket file descriptor ro
@@ -150,6 +182,8 @@ void TTWS_StartServer(TTWS_Server* server) {
                 epoll_ctl(server->epoll_instance_fd, EPOLL_CTL_ADD, client_fd, &ep_event);
             } else {
                 recv(fd, buf, size, 0);
+                printf("%s\n", buf);
+                handle_request(buf);
                 send(fd, message, strlen(message), 0);
                 //*(client_sockets+i) = client_fd;
                 close(fd);
@@ -157,6 +191,8 @@ void TTWS_StartServer(TTWS_Server* server) {
         }
     }
 }
+
+
 
 void TTWS_AddStaticFile() {
     
@@ -196,7 +232,7 @@ static void add_route_to_tier(RouteNode* node, char* route, char* remaining_path
     }
 
     RouteNode* new_node = create_route_node();
-    new_node->value = route;
+    new_node->value = strdup(route);
 
     add_route_to_children(node, new_node);
 
@@ -249,6 +285,87 @@ void handle() {
 
 }
 
+
+static char* parse_request_line(const char* request_line, TTWS_Request* request) {
+
+    // Could potentially replace all of this with sscanf
+    char* copy = strdup(request_line);
+    char* method = strtok(copy, " ");
+    if (method == NULL) {
+        perror("malformed request");
+        exit(1);
+    }
+
+    char* path = strtok(NULL, " ");
+    if (method == NULL) {
+        perror("malformed request");
+        exit(1);
+    }
+
+    char* version = strtok(NULL, " ");
+    if (method == NULL) {
+        perror("malformed request");
+        exit(1);
+    }
+    
+    request->method = strdup(method);
+    request->path = strdup(path);
+    request->version = strdup(version);
+
+    free(copy);
+};
+
+static void get_route(TTWS_Server* server, char* path, char* save) {
+    
+    
+    strtok_r(NULL, "/", &save);
+}
+
+static RouteHandler* get_route_handler(const TTWS_Server* server, const TTWS_Request* request) {
+    
+    char* path = strdup(request->path);
+    char* save;
+    char* route_segment = strtok_r(path, "/", &save);
+
+    
+
+    get_route(server, path, save);
+
+    free(path);
+}
+
+static void handle_request(cons TTWS_Server* server, const char* req_str) {
+    // TODO: Get the path
+    // Go through the tree and find a match
+    // pass req and res to the handler function of the match
+    // we get response back
+    // return response or handle it here
+
+    TTWS_Request request;
+    char* copy = strdup(req_str);
+    char* line = strtok(copy, "\n\r");
+    parse_request_line(line, &request);
+
+    TTWS_Response response;
+    RouteHandler* route_handler;
+
+    if (strcmp(request.path, "/") == 0) {
+        route_handler = server->route_trie_root->handler; // If the handler is NULL, then there's no handle for this endpoint and we handle that separately.
+    } else {
+        route_handler = get_route_handler(&request);
+    }
+
+    get_route(server, request);
+    printf("%s\n%s\n%s\n", request.method, request.path, request.version);
+    while(line != NULL) {
+        //printf("%s\n", line);
+        line = strtok(NULL, "\n\r");
+    }
+
+    free(copy);
+
+}
+
 // TODO: Add a --print-routes flag and print a tree structure.
 int main() {
     TTWS_Server* server = TTWS_CreateServer(8080);
@@ -258,8 +375,8 @@ int main() {
     TTWS_AddRoute(server, "GET", "/my_path/cheese/fries", handle);
     TTWS_AddRoute(server, "GET", "/my_path/elmo", handle);
     TTWS_AddRoute(server, "GET", "/the_jiggler", handle);
-
-    TTWS_PrintRouteTree(server);
+    handle_request(server, "GET / HTTP/1.1\r\nH: x\r\nY: t\r\nZ: m");
+    //TTWS_PrintRouteTree(server);
     //TTWS_StartServer(server);
     return 0;
 }
