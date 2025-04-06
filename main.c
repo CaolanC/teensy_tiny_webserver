@@ -24,6 +24,50 @@ void cleanup_sockets() {
     }
 }
 
+char* read_entire_file(const char* filename, const int null_terminate) { //size_t* out_size) {
+    FILE* file = fopen(filename, "rb");
+    if (!file) return NULL;
+
+    size_t capacity = 1024; // Initial buffer size
+    size_t length = 0;
+    char* buffer = malloc(capacity);
+    if (!buffer) {
+        fclose(file);
+        return NULL;
+    }
+
+    size_t n;
+    while ((n = fread(buffer + length, 1, capacity - length, file)) > 0) {
+        length += n;
+        if (length == capacity) {
+            capacity *= 2;
+            char* new_buffer = realloc(buffer, capacity);
+            if (!new_buffer) {
+                free(buffer);
+                fclose(file);
+                return NULL;
+            }
+            buffer = new_buffer;
+        }
+    }
+
+    if (ferror(file)) {
+        free(buffer);
+        fclose(file);
+        return NULL;
+    }
+
+    fclose(file);
+    //if (out_size) *out_size = length;
+    char* null_terminated = realloc(buffer, length + 1);
+    if (null_terminate && !null_terminated) {
+        free(buffer);
+        return NULL;
+    }
+    null_terminated[length] = '\0';
+    return buffer; // Note: Not null-terminated
+}
+
 void handle_sigint(int sig) {
     printf("INTERUPT: %d\n", sig);
     cleanup_sockets();
@@ -37,7 +81,9 @@ typedef struct {
 } TTWS_Request;
 
 typedef struct {
-
+    char* body;
+    int status;
+    char* http_version;
 } TTWS_Response;
 
 typedef int (*RouteHandler)(const TTWS_Request* request, TTWS_Response* response);
@@ -94,6 +140,14 @@ static struct epoll_event create_epoll_event() {
     ev.events = EPOLLIN;
 
     return ev;
+}
+
+TTWS_Response* TTWS_CreateResponse() {
+    TTWS_Response* res = malloc(sizeof(TTWS_Response));
+    res->body = NULL;
+    res->status = -1;
+
+    return res;
 }
 
 
@@ -166,7 +220,7 @@ void TTWS_StartServer(TTWS_Server* server) {
             server->socket_fd,
             &ep_event
             );
-    TTWS_Response* response = malloc(sizeof(TTWS_Response));
+    TTWS_Response* response = TTWS_CreateResponse();
     for(;;) {
         no_ready_clients = epoll_wait(
             server->epoll_instance_fd,
@@ -191,9 +245,10 @@ void TTWS_StartServer(TTWS_Server* server) {
                 buf[bytes_read] = '\0';
 
                 //printf("%s\n", buf);
+                response = TTWS_CreateResponse();
                 response = handle_request(server, buf, response);
                 if (response != NULL) {
-                    send(fd, message, strlen(message), 0);
+                    send(fd, response->body, strlen(response->body), 0);
                 }
                 //*(client_sockets+i) = client_fd;
                 close(fd);
@@ -204,7 +259,7 @@ void TTWS_StartServer(TTWS_Server* server) {
 
 
 
-void TTWS_AddStaticFile() {
+void TTWS_AddStaticDir() {
     
 }
 
@@ -388,9 +443,57 @@ static TTWS_Response* handle_request(const TTWS_Server* server, const char* req_
     return response;
 }
 
+typedef enum {
+    TTWS_STATUS_OK = 200,
+} TTWS_ResStatus;
+
+#define HTTP_VERSION_1_1 "HTTP/1.1"
+
+int TTWS_SendFile(TTWS_Response* res, const char* filepath, int status_code) {
+    char* body = read_entire_file(filepath, 1);
+    if (!body) {
+        res->status = 404;
+        res->body = strdup(
+            "HTTP/1.1 404 Not Found\r\n"
+            "Content-Type: text/plain\r\n"
+            "Content-Length: 13\r\n"
+            "\r\n"
+            "404 Not Found"
+        );
+        return -1;
+    }
+
+    char header[512];
+    snprintf(header, sizeof(header),
+        "HTTP/1.1 %d OK\r\n"
+        "Content-Type: text/html\r\n"
+        "Content-Length: %zu\r\n"
+        "Connection: close\r\n"
+        "\r\n",
+        status_code, strlen(body));
+
+    size_t total_len = strlen(header) + strlen(body) + 1;
+    res->body = malloc(total_len);
+    snprintf(res->body, total_len, "%s%s", header, body);
+    res->status = status_code;
+
+    free(body);
+    return 0;
+}
+
+
 int handle(const TTWS_Request* req, TTWS_Response* res) {
     printf("Handling request for path: %s\n", req->path);
+    TTWS_SendFile(res, "./index.html", TTWS_STATUS_OK);
+    printf("%s\n", res->body);
+    
+    return 0;
 
+}
+
+
+int jiggler_handle(const TTWS_Request* req, TTWS_Response* res) {
+    TTWS_SendFile(res, "./jiggler.html", TTWS_STATUS_OK);
     
     return 0;
 
@@ -400,12 +503,7 @@ int handle(const TTWS_Request* req, TTWS_Response* res) {
 int main() {
     TTWS_Server* server = TTWS_CreateServer(8080);
     TTWS_AddRoute(server, "GET", "/", handle);
-    TTWS_AddRoute(server, "GET", "/my_path/lol/", handle);
-    TTWS_AddRoute(server, "GET", "/my_path/cheese/", handle);
-    TTWS_AddRoute(server, "GET", "/my_path/cheese/gouda", handle);
-    TTWS_AddRoute(server, "GET", "/my_path/cheese/fries", handle);
-    TTWS_AddRoute(server, "GET", "/my_path/elmo", handle);
-    TTWS_AddRoute(server, "GET", "/the_jiggler", handle);
+    TTWS_AddRoute(server, "GET", "/jig", jiggler_handle);
     TTWS_PrintRouteTree(server);
     TTWS_StartServer(server);
     return 0;
