@@ -40,7 +40,7 @@ typedef struct {
 
 } TTWS_Response;
 
-typedef void (*RouteHandler)(const TTWS_Request* request, TTWS_Response* response);
+typedef int (*RouteHandler)(const TTWS_Request* request, TTWS_Response* response);
 typedef struct RouteNode {
     char* value;
     struct RouteNode* next;
@@ -133,7 +133,7 @@ TTWS_Server* TTWS_CreateServer(int port) {
     return server;
 }
 
-static void handle_request();
+static TTWS_Response* handle_request(const TTWS_Server* server, const char* req_str, TTWS_Response* response);
 
 void TTWS_StartServer(TTWS_Server* server) {
     printf("\033[36mTeensyTinyWebServer\033[0m is listening on port \033[35m%d\033[0m.\n", server->port_no);
@@ -143,7 +143,7 @@ void TTWS_StartServer(TTWS_Server* server) {
 
     const char* body = "<h1>Hello World</h1>";
     char message[1024];
-    /*snprintf(message, sizeof(message),
+    snprintf(message, sizeof(message),
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: text/html\r\n"
         "Content-Length: %zu\r\n"
@@ -151,7 +151,7 @@ void TTWS_StartServer(TTWS_Server* server) {
         "\r\n"
         "%s",
         strlen(body), body);
-    */
+    
     if (listen(server->socket_fd, 5) == -1) {
         perror("listen");
         exit(1);
@@ -166,6 +166,7 @@ void TTWS_StartServer(TTWS_Server* server) {
             server->socket_fd,
             &ep_event
             );
+    TTWS_Response* response = malloc(sizeof(TTWS_Response));
     for(;;) {
         no_ready_clients = epoll_wait(
             server->epoll_instance_fd,
@@ -173,7 +174,7 @@ void TTWS_StartServer(TTWS_Server* server) {
             MAX_SOCKETS,
             -1  
             );
-
+        
         for(int i = 0; i < no_ready_clients; i++) {
             fd = server->events[i].data.fd;
             if (fd == server->socket_fd) { // The socket that is available for I/O is our listen server, meaning that a new possible client is trying to connect.
@@ -190,8 +191,10 @@ void TTWS_StartServer(TTWS_Server* server) {
                 buf[bytes_read] = '\0';
 
                 //printf("%s\n", buf);
-                handle_request(server, buf);
-                send(fd, message, strlen(message), 0);
+                response = handle_request(server, buf, response);
+                if (response != NULL) {
+                    send(fd, message, strlen(message), 0);
+                }
                 //*(client_sockets+i) = client_fd;
                 close(fd);
             }
@@ -245,7 +248,7 @@ static void add_route_to_tier(RouteNode* node, char* route, char* remaining_path
 
     route = strtok_r(NULL, "/", &remaining_path);
     if (route == NULL) {
-        new_node->handler = **handler;
+        new_node->handler = *handler;
         return;
     }
 
@@ -355,13 +358,12 @@ static RouteHandler* get_route_handler(const TTWS_Server* server, const TTWS_Req
     return current->handler ? &current->handler : NULL;
 }
 
-static void handle_request(const TTWS_Server* server, const char* req_str) {
+static TTWS_Response* handle_request(const TTWS_Server* server, const char* req_str, TTWS_Response* response) {
     TTWS_Request request;
     char* copy = strdup(req_str);
     char* line = strtok(copy, "\r\n");
     parse_request_line(line, &request);
 
-    TTWS_Response response;
     RouteHandler* route_handler = NULL;
 
     if (strcmp(request.path, "/") == 0) {
@@ -371,19 +373,27 @@ static void handle_request(const TTWS_Server* server, const char* req_str) {
     }
 
     if (route_handler && *route_handler) {
-        (*route_handler)(&request, &response);
+        (*route_handler)(&request, response);
     } else {
         printf("No handler found for path: %s\n", request.path);
+        return NULL;
     }
+
 
     free(copy);
     free(request.method);
     free(request.path);
     free(request.version);
+
+    return response;
 }
 
-void handle(const TTWS_Request* req, TTWS_Response* res) {
+int handle(const TTWS_Request* req, TTWS_Response* res) {
     printf("Handling request for path: %s\n", req->path);
+
+    
+    return 0;
+
 }
 
 // TODO: Add a --print-routes flag and print a tree structure.
