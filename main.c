@@ -496,7 +496,6 @@ int jiggler_handle(const TTWS_Request* req, TTWS_Response* res) {
     TTWS_SendFile(res, "./jiggler.html", TTWS_STATUS_OK);
     
     return 0;
-
 }
 
 // TODO: Add a --print-routes flag and print a tree structure.
