@@ -117,12 +117,15 @@ static void add_route_to_children(RouteNode* parent, RouteNode* new_node) {
     parent->children[parent->no_children-1] = new_node;
 }
 
-struct TTWS_Server {
+
+
+struct TTWS_Server { // TODO: Add list of static routes/regex 
     int epoll_instance_fd;
     int socket_fd;
     int port_no;
     struct epoll_event events[MAX_SOCKETS];
     RouteNode route_trie_root;
+    char** static_routes;
 };
 
 static int create_server_socket() {
@@ -220,6 +223,9 @@ void TTWS_StartServer(TTWS_Server* server) {
             server->socket_fd,
             &ep_event
             );
+
+    // TODO:compile regex paths before main loop
+
     TTWS_Response* response = TTWS_CreateResponse();
     for(;;) {
         no_ready_clients = epoll_wait(
@@ -259,7 +265,7 @@ void TTWS_StartServer(TTWS_Server* server) {
 
 
 
-void TTWS_AddStaticDir() {
+void TTWS_AddStaticDir(char* path) { // /home/cc/paintings | ./directory
     
 }
 
@@ -359,13 +365,13 @@ static char* parse_request_line(const char* request_line, TTWS_Request* request)
     }
 
     char* path = strtok(NULL, " ");
-    if (method == NULL) {
+    if (path == NULL) {
         perror("malformed request");
         exit(1);
     }
 
     char* version = strtok(NULL, " ");
-    if (method == NULL) {
+    if (version == NULL) {
         perror("malformed request");
         exit(1);
     }
@@ -413,11 +419,17 @@ static RouteHandler* get_route_handler(const TTWS_Server* server, const TTWS_Req
     return current->handler ? &current->handler : NULL;
 }
 
+static int try_static_server(const TTWS_Request) {
+
+}
+
 static TTWS_Response* handle_request(const TTWS_Server* server, const char* req_str, TTWS_Response* response) {
     TTWS_Request request;
     char* copy = strdup(req_str);
     char* line = strtok(copy, "\r\n");
     parse_request_line(line, &request);
+
+    // TODO: Implement static serving here
 
     RouteHandler* route_handler = NULL;
 
@@ -493,10 +505,12 @@ int handle(const TTWS_Request* req, TTWS_Response* res) {
 
 
 int jiggler_handle(const TTWS_Request* req, TTWS_Response* res) {
-    TTWS_SendFile(res, "./jiggler.html", TTWS_STATUS_OK);
+    TTWS_SendFile(res, "./jiggler.html", TTWS_STATUS_OK);`
     
     return 0;
 }
+
+// Adding a static route is to 
 
 // TODO: Add a --print-routes flag and print a tree structure.
 int main() {
