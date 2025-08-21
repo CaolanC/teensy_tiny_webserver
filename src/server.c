@@ -7,12 +7,10 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <signal.h>
-//#include "./TTWS.h"
 
-#include "response.h"
-#include "router.h"
-#include "macros.h"
-#include "server.h"
+#include <ttws/TTWS.h>
+#include "internal/router.h"
+#include "internal/server.h"
 
 static int client_sockets[MAX_SOCKETS];
 static int server_socket = -1;

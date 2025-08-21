@@ -1,9 +1,6 @@
-#include "server.h"
-#include "request.h"
-#include "response.h"
-#include "router.h"
-
 #include <stdio.h>
+
+#include <ttws/TTWS.h>
 
 int handle(const TTWS_Request* req, TTWS_Response* res) {
     printf("Handling request for path: %s\n", req->path);

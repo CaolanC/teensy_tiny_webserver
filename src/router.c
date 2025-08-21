@@ -1,8 +1,8 @@
-#include "router.h"
-#include "request.h"
-#include "response.h"
-#include "server.h"
-#include "macros.h"
+#include "internal/router.h"
+#include "internal/request.h"
+#include "internal/response.h"
+#include "internal/server.h"
+#include <ttws/TTWS.h>
 
 #include <stdlib.h>
 #include <errno.h>
@@ -10,15 +10,6 @@
 #include <string.h>
 #include <sys/epoll.h>
 typedef int (*RouteHandler)(const TTWS_Request* request, TTWS_Response* response);
-static RouteNode* create_route_node() {
-    RouteNode* node = malloc(sizeof(RouteNode));
-    node->no_children = 0;
-    node->handler = NULL;
-    node->value = NULL;
-    node->children = NULL;
-
-    return node;
-}
 
 struct TTWS_Server {
     int epoll_instance_fd;
@@ -29,6 +20,15 @@ struct TTWS_Server {
     char** static_routes;
 };
 
+static RouteNode* create_route_node() {
+    RouteNode* node = malloc(sizeof(RouteNode));
+    node->no_children = 0;
+    node->handler = NULL;
+    node->value = NULL;
+    node->children = NULL;
+
+    return node;
+}
 
 static void add_route_to_children(RouteNode* parent, RouteNode* new_node) {
     parent->no_children++;
