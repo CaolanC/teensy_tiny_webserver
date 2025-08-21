@@ -7,6 +7,4 @@
 #include "router.h"
 #include "macros.h"
 
-typedef struct TTWS_Server TTWS_Server;
-
 #endif

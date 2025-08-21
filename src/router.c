@@ -1,6 +1,4 @@
 #include "internal/router.h"
-#include "internal/request.h"
-#include "internal/response.h"
 #include "internal/server.h"
 #include <ttws/TTWS.h>
 
@@ -10,15 +8,6 @@
 #include <string.h>
 #include <sys/epoll.h>
 typedef int (*RouteHandler)(const TTWS_Request* request, TTWS_Response* response);
-
-struct TTWS_Server {
-    int epoll_instance_fd;
-    int socket_fd;
-    int port_no;
-    struct epoll_event events[MAX_SOCKETS];
-    RouteNode route_trie_root;
-    char** static_routes;
-};
 
 static RouteNode* create_route_node() {
     RouteNode* node = malloc(sizeof(RouteNode));

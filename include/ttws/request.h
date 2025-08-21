@@ -1,7 +1,7 @@
 #ifndef TTWS_REQUEST_H
 #define TTWS_REQUEST_H
 
-typedef struct {
+typedef struct TTWS_Request {
     char* method;
     char* path;
     char* version;

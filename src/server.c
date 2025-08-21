@@ -15,15 +15,6 @@
 static int client_sockets[MAX_SOCKETS];
 static int server_socket = -1;
 
-struct TTWS_Server { // TODO: Add list of static routes/regex 
-    int epoll_instance_fd;
-    int socket_fd;
-    int port_no;
-    struct epoll_event events[MAX_SOCKETS];
-    RouteNode route_trie_root;
-    char** static_routes;
-};
-
 void cleanup_sockets() {
     close(server_socket);
     for(int i = 0; i < MAX_SOCKETS; i++) {

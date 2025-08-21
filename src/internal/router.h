@@ -1,11 +1,11 @@
 #ifndef ROUTER_H
 #define ROUTER_H
 
-#include "server.h"
-#include "request.h"
-#include "response.h"
-
+#include <sys/epoll.h>
 #include "ttws/router.h"
+
+typedef struct TTWS_Request TTWS_Request;
+typedef struct TTWS_Response TTWS_Response;
 
 typedef struct RouteNode {
     char* value;
