@@ -1,4 +1,0 @@
-Name: ttws
-Description: Teensy tiny, linux only, dependency free, epoll based web-server in C.
-Version: 1.0.0
-
