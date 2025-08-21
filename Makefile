@@ -1,11 +1,9 @@
-make:
-	gcc ./main.c
-	./a.out
+PREFIX ?= /usr/local
+LIB_DIR = $(PREFIX)/lib
+INCLUDE_DIR = $(PREFIX)/include
 
-strace:
-	gcc ./main.c
-	strace ./a.out
+I_FILES = $(wildcard src/**.c)
+O_FILES = $(I_FILES:.c=.o)
 
-debug:
-	gcc -g ./main.c
-	gdb ./a.out
+all:
+	echo $(I_FILES)
