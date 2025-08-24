@@ -6,4 +6,5 @@ I_FILES = $(wildcard src/**.c)
 O_FILES = $(I_FILES:.c=.o)
 
 all:
-	echo $(I_FILES)
+	gcc -Isrc -Iinclude src/*.c examples/main.c -o ./build/example
+	./build/example
